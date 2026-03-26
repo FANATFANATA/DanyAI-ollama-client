@@ -1,4 +1,5 @@
 import "dart:convert";
+import "dart:async";
 import "package:flutter/material.dart";
 import "package:image_picker/image_picker.dart";
 import "models/models.dart";
@@ -7,6 +8,7 @@ import "widgets/widgets.dart";
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  FlutterError.onError = (details) => debugPrint("Flutter Error: ${details.exception}");
   final settings = await Settings.load();
   runApp(DanyAIApp(settings: settings));
 }
@@ -17,14 +19,27 @@ class DanyAIApp extends StatelessWidget {
 
   ThemeData _getTheme(String name) {
     final isDark = name.contains("dark") || name.contains("black");
+    final isBlack = name == "black";
     return ThemeData(
       useMaterial3: true,
       brightness: isDark ? Brightness.dark : Brightness.light,
-      scaffoldBackgroundColor: name == "black" ? Colors.black : null,
+      scaffoldBackgroundColor: isBlack
+          ? Colors.black
+          : (isDark ? const Color(0xFF0F1114) : const Color(0xFFF8FAFC)),
       colorScheme: ColorScheme.fromSeed(
-        seedColor: Colors.blue,
+        seedColor: const Color(0xFF3B82F6),
         brightness: isDark ? Brightness.dark : Brightness.light,
-        surface: name == "black" ? Colors.black : null,
+        surface: isBlack ? Colors.black : (isDark ? const Color(0xFF16191D) : Colors.white),
+      ),
+      appBarTheme: AppBarTheme(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        centerTitle: false,
+        titleTextStyle: TextStyle(
+          color: isDark ? Colors.white : Colors.black,
+          fontSize: 20,
+          fontWeight: FontWeight.w900,
+        ),
       ),
     );
   }
@@ -60,6 +75,7 @@ class _ChatScreenState extends State<ChatScreen> {
   OllamaService? _ollama;
   bool _isSidebarVisible = true;
   List<String> _availableModels = <String>[];
+  StreamSubscription<Message>? _chatSub;
 
   @override
   void initState() {
@@ -83,24 +99,25 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _loadModels() async {
-    final models = await _ollama?.getLocalModels();
-    if (mounted && models != null) {
-      setState(() => _availableModels = models.map((m) => m["name"] as String).toList());
+    try {
+      final models = await _ollama?.getLocalModels();
+      if (mounted && models != null) {
+        setState(() => _availableModels = models.map((m) => m["name"] as String).toList());
+      }
+    } catch (e) {
+      debugPrint("Model load error: $e");
     }
   }
 
   void _scrollToBottom() {
     if (!_scrollController.hasClients) return;
-    final pos = _scrollController.position;
-    if (pos.maxScrollExtent - pos.pixels < 200) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _scrollController.animateTo(
-          _scrollController.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 200),
-          curve: Curves.easeOut,
-        );
-      });
-    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _scrollController.animateTo(
+        _scrollController.position.maxScrollExtent,
+        duration: const Duration(milliseconds: 500),
+        curve: Curves.fastLinearToSlowEaseIn,
+      );
+    });
   }
 
   Future<void> _pickImage() async {
@@ -114,11 +131,15 @@ class _ChatScreenState extends State<ChatScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text("Ошибка выбора изображений: $e")));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Ошибка: $e")));
       }
     }
+  }
+
+  void _stopGeneration() {
+    _chatSub?.cancel();
+    setState(() => _isLoading = false);
+    _chatService.save();
   }
 
   Future<void> _sendMessage() async {
@@ -126,31 +147,36 @@ class _ChatScreenState extends State<ChatScreen> {
     if ((text.isEmpty && _selectedImages.isEmpty) || _isLoading || _ollama == null) return;
     if (_chatService.currentChat == null) await _chatService.createChat();
     final chat = _chatService.currentChat!;
-
     final userMsg = Message(role: "user", content: text, images: List.from(_selectedImages));
-
     setState(() {
       _controller.clear();
       _selectedImages.clear();
       _isLoading = true;
     });
-
     await _chatService.addMessage(chat, userMsg);
     _scrollToBottom();
-
     final assistantMsg = Message(role: "assistant", content: "", thinking: "");
     await _chatService.addMessage(chat, assistantMsg);
-
     try {
-      await for (final update in _ollama!.chat(_chatService.currentChat!.messages)) {
-        await _chatService.updateLastMessage(chat, update);
-        _scrollToBottom();
-      }
-      await _chatService.save();
+      _chatSub = _ollama!
+          .chat(_chatService.currentChat!.messages)
+          .listen(
+            (update) {
+              _chatService.updateLastMessage(chat, update);
+              _scrollToBottom();
+            },
+            onDone: () {
+              setState(() => _isLoading = false);
+              _chatService.save();
+            },
+            onError: (Object e) {
+              _chatService.updateLastMessage(chat, assistantMsg.copyWith(content: "Ошибка: $e"));
+              setState(() => _isLoading = false);
+            },
+          );
     } catch (e) {
-      await _chatService.updateLastMessage(chat, assistantMsg.copyWith(content: "Ошибка: $e"));
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
+      _chatService.updateLastMessage(chat, assistantMsg.copyWith(content: "Ошибка: $e"));
+      setState(() => _isLoading = false);
     }
   }
 
@@ -168,18 +194,22 @@ class _ChatScreenState extends State<ChatScreen> {
               children: [
                 TextField(
                   controller: urlCtrl,
-                  decoration: const InputDecoration(labelText: "Ollama URL"),
+                  decoration: const InputDecoration(
+                    labelText: "Ollama URL",
+                    prefixIcon: Icon(Icons.link_rounded),
+                  ),
                 ),
-                const SizedBox(height: 10),
+                const SizedBox(height: 16),
                 TextField(
                   controller: sysCtrl,
                   maxLines: 3,
                   decoration: const InputDecoration(
                     labelText: "System Prompt",
                     border: OutlineInputBorder(),
+                    alignLabelWithHint: true,
                   ),
                 ),
-                const Divider(),
+                const Divider(height: 32),
                 _slider(
                   setDialogState,
                   "Temperature",
@@ -213,6 +243,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   (v) => widget.settings.repeatPenalty = v,
                 ),
                 ListTile(
+                  contentPadding: EdgeInsets.zero,
                   title: const Text("Context Length"),
                   trailing: DropdownButton<int>(
                     value: widget.settings.numCtx,
@@ -233,7 +264,7 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
           actions: [
             TextButton(onPressed: () => Navigator.pop(context), child: const Text("Отмена")),
-            ElevatedButton(
+            FilledButton(
               onPressed: () async {
                 widget.settings.baseUrl = urlCtrl.text;
                 widget.settings.systemPrompt = sysCtrl.text;
@@ -259,7 +290,16 @@ class _ChatScreenState extends State<ChatScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text("$label: ${val.toStringAsFixed(2)}"),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(label, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+            Text(
+              val.toStringAsFixed(2),
+              style: const TextStyle(fontFamily: "monospace", fontSize: 12),
+            ),
+          ],
+        ),
         Slider(value: val, min: min, max: max, onChanged: (v) => setState(() => onCh(v))),
       ],
     );
@@ -268,147 +308,237 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   Widget build(BuildContext context) {
     final currentChat = _chatService.currentChat;
+    final theme = Theme.of(context);
     return Scaffold(
-      body: Row(
+      body: Stack(
         children: [
-          AnimatedContainer(
-            duration: const Duration(milliseconds: 250),
-            curve: Curves.easeInOut,
-            width: _isSidebarVisible ? 280 : 0,
-            child: ClipRect(
-              child: OverflowBox(
-                minWidth: 280,
-                maxWidth: 280,
-                alignment: Alignment.centerLeft,
-                child: ChatSidebar(
-                  chats: _chatService.chats,
-                  currentChat: currentChat,
-                  settings: widget.settings,
-                  onSelectChat: _chatService.selectChat,
-                  onNewChat: _chatService.createChat,
-                  onDeleteChat: _chatService.deleteChat,
-                  onRenameChat: _chatService.renameChat,
-                  onToggleSidebar: () => setState(() => _isSidebarVisible = false),
-                  onSettingsPressed: _showSettings,
+          Positioned.fill(
+            child: Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: theme.brightness == Brightness.dark
+                      ? [const Color(0xFF0F172A), const Color(0xFF020617)]
+                      : [const Color(0xFFF1F5F9), const Color(0xFFE2E8F0)],
                 ),
               ),
             ),
           ),
-          Expanded(
-            child: Column(
-              children: [
-                AppBar(
-                  leading: !_isSidebarVisible
-                      ? IconButton(
-                          icon: const Icon(Icons.menu),
-                          onPressed: () => setState(() => _isSidebarVisible = true),
-                        )
-                      : null,
-                  title: const Text("DanyAI"),
-                  actions: [
-                    if (_availableModels.isNotEmpty)
-                      PopupMenuButton<String>(
-                        icon: const Icon(Icons.smart_toy),
-                        tooltip: "Выбрать модель",
-                        onSelected: (m) {
-                          widget.settings.model = m;
-                          widget.settings.save();
-                        },
-                        itemBuilder: (context) => _availableModels
-                            .map(
-                              (m) => PopupMenuItem(
-                                value: m,
-                                child: Text(
-                                  m,
-                                  style: TextStyle(
-                                    fontWeight: widget.settings.model == m ? FontWeight.bold : null,
+          Row(
+            children: [
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 400),
+                curve: Curves.easeInOutCubic,
+                width: _isSidebarVisible ? 300 : 0,
+                child: ClipRect(
+                  child: OverflowBox(
+                    minWidth: 300,
+                    maxWidth: 300,
+                    alignment: Alignment.centerLeft,
+                    child: ChatSidebar(
+                      chats: _chatService.chats,
+                      currentChat: currentChat,
+                      settings: widget.settings,
+                      onSelectChat: _chatService.selectChat,
+                      onNewChat: _chatService.createChat,
+                      onDeleteChat: _chatService.deleteChat,
+                      onRenameChat: _chatService.renameChat,
+                      onToggleSidebar: () => setState(() => _isSidebarVisible = false),
+                      onSettingsPressed: _showSettings,
+                    ),
+                  ),
+                ),
+              ),
+              Expanded(
+                child: Column(
+                  children: [
+                    AppBar(
+                      leading: !_isSidebarVisible
+                          ? IconButton(
+                              icon: const Icon(Icons.menu_rounded),
+                              onPressed: () => setState(() => _isSidebarVisible = true),
+                            )
+                          : null,
+                      title: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Text("DanyAI", style: TextStyle(fontWeight: FontWeight.w900)),
+                          if (widget.settings.model.isNotEmpty) ...[
+                            const SizedBox(width: 12),
+                            Flexible(
+                              child: GlassContainer(
+                                borderRadius: BorderRadius.circular(20),
+                                blur: 10,
+                                color: theme.colorScheme.primary.withValues(alpha: 0.15),
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        Icons.auto_awesome,
+                                        size: 14,
+                                        color: theme.colorScheme.primary,
+                                      ),
+                                      const SizedBox(width: 6),
+                                      Flexible(
+                                        child: Text(
+                                          widget.settings.model,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: theme.textTheme.labelMedium?.copyWith(
+                                            color: theme.colorScheme.primary,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ),
                               ),
-                            )
-                            .toList(),
+                            ),
+                          ],
+                        ],
                       ),
-                    IconButton(
-                      icon: const Icon(Icons.delete_sweep),
-                      tooltip: "Очистить чат",
-                      onPressed: _chatService.clearCurrentChat,
+                      actions: [
+                        if (_availableModels.isNotEmpty)
+                          PopupMenuButton<String>(
+                            icon: const Icon(Icons.tune_rounded),
+                            tooltip: "Выбор модели",
+                            offset: const Offset(0, 50),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                            onSelected: (m) {
+                              widget.settings.model = m;
+                            },
+                            itemBuilder: (context) => _availableModels
+                                .map(
+                                  (m) => PopupMenuItem(
+                                    value: m,
+                                    child: Row(
+                                      children: [
+                                        Icon(
+                                          widget.settings.model == m
+                                              ? Icons.check_circle_rounded
+                                              : Icons.circle_outlined,
+                                          size: 18,
+                                          color: widget.settings.model == m
+                                              ? theme.colorScheme.primary
+                                              : theme.hintColor,
+                                        ),
+                                        const SizedBox(width: 12),
+                                        Expanded(
+                                          child: Text(
+                                            m,
+                                            style: TextStyle(
+                                              fontWeight: widget.settings.model == m
+                                                  ? FontWeight.bold
+                                                  : null,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                )
+                                .toList(),
+                          ),
+                        IconButton(
+                          icon: const Icon(Icons.cleaning_services_rounded),
+                          tooltip: "Очистить",
+                          onPressed: _chatService.clearCurrentChat,
+                        ),
+                        const SizedBox(width: 8),
+                      ],
+                    ),
+                    Expanded(
+                      child: currentChat == null || currentChat.messages.isEmpty
+                          ? const EmptyChatView()
+                          : ListView.builder(
+                              controller: _scrollController,
+                              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                              itemCount: currentChat.messages.length,
+                              itemBuilder: (context, i) => MessageBubble(
+                                key: ValueKey("${currentChat.id}_$i"),
+                                isUser: currentChat.messages[i].role == "user",
+                                message: currentChat.messages[i],
+                                onEdit: (c) => _chatService.editMessage(currentChat, i, c),
+                                onDelete: () => _chatService.deleteMessage(currentChat, i),
+                              ),
+                            ),
+                    ),
+                    if (_selectedImages.isNotEmpty)
+                      Container(
+                        height: 100,
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        child: ListView.builder(
+                          scrollDirection: Axis.horizontal,
+                          itemCount: _selectedImages.length,
+                          itemBuilder: (context, i) => Padding(
+                            padding: const EdgeInsets.only(right: 12, top: 8, bottom: 8),
+                            child: Hero(
+                              tag: "img_$i",
+                              child: Stack(
+                                clipBehavior: Clip.none,
+                                children: [
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(16),
+                                    child: Image.memory(
+                                      base64Decode(_selectedImages[i]),
+                                      width: 80,
+                                      height: 80,
+                                      fit: BoxFit.cover,
+                                    ),
+                                  ),
+                                  Positioned(
+                                    right: -8,
+                                    top: -8,
+                                    child: GestureDetector(
+                                      onTap: () => setState(() => _selectedImages.removeAt(i)),
+                                      child: GlassContainer(
+                                        borderRadius: BorderRadius.circular(12),
+                                        color: theme.colorScheme.error.withValues(alpha: 0.9),
+                                        child: const Padding(
+                                          padding: EdgeInsets.all(4),
+                                          child: Icon(
+                                            Icons.close_rounded,
+                                            size: 14,
+                                            color: Colors.white,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    if (_isLoading) const LinearProgressIndicator(minHeight: 2),
+                    Row(
+                      children: [
+                        const SizedBox(width: 12),
+                        IconButton(
+                          icon: const Icon(Icons.add_circle_outline_rounded, size: 28),
+                          onPressed: _pickImage,
+                          tooltip: "Изображения",
+                          color: theme.colorScheme.primary,
+                        ),
+                        Expanded(
+                          child: MessageInput(
+                            controller: _controller,
+                            isLoading: _isLoading,
+                            hintText: "Спроси DanyAI...",
+                            onSend: _sendMessage,
+                            onStop: _stopGeneration,
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
-                Expanded(
-                  child: currentChat == null || currentChat.messages.isEmpty
-                      ? const EmptyChatView()
-                      : ListView.builder(
-                          controller: _scrollController,
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                          itemCount: currentChat.messages.length,
-                          itemBuilder: (context, i) => MessageBubble(
-                            key: ValueKey<String>(
-                              "${currentChat.id}_${i}_${currentChat.messages[i].content.hashCode}",
-                            ),
-                            isUser: currentChat.messages[i].role == "user",
-                            message: currentChat.messages[i],
-                            onEdit: (c) => _chatService.editMessage(currentChat, i, c),
-                            onDelete: () => _chatService.deleteMessage(currentChat, i),
-                          ),
-                        ),
-                ),
-                if (_selectedImages.isNotEmpty)
-                  Container(
-                    height: 80,
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: ListView.builder(
-                      scrollDirection: Axis.horizontal,
-                      itemCount: _selectedImages.length,
-                      itemBuilder: (context, i) => Stack(
-                        children: [
-                          Padding(
-                            padding: const EdgeInsets.only(right: 8),
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.circular(8),
-                              child: Image.memory(
-                                base64Decode(_selectedImages[i]),
-                                width: 70,
-                                height: 70,
-                                fit: BoxFit.cover,
-                              ),
-                            ),
-                          ),
-                          Positioned(
-                            right: 0,
-                            top: 0,
-                            child: GestureDetector(
-                              onTap: () => setState(() => _selectedImages.removeAt(i)),
-                              child: const CircleAvatar(
-                                radius: 10,
-                                backgroundColor: Colors.red,
-                                child: Icon(Icons.close, size: 12, color: Colors.white),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                if (_isLoading) const LinearProgressIndicator(minHeight: 2),
-                Padding(
-                  padding: const EdgeInsets.all(8.0),
-                  child: Row(
-                    children: [
-                      IconButton(icon: const Icon(Icons.image), onPressed: _pickImage),
-                      Expanded(
-                        child: MessageInput(
-                          controller: _controller,
-                          isLoading: _isLoading,
-                          hintText: "Спроси DanyAI...",
-                          onSend: _sendMessage,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
         ],
       ),
@@ -417,6 +547,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   void dispose() {
+    _chatSub?.cancel();
     _controller.dispose();
     _scrollController.dispose();
     _ollama?.dispose();

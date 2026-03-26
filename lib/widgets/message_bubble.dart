@@ -1,7 +1,9 @@
 import "dart:convert";
 import "package:flutter/material.dart";
 import "package:flutter/services.dart";
+import "package:flutter_markdown/flutter_markdown.dart";
 import "../models/message.dart";
+import "thinking_block.dart";
 
 class MessageBubble extends StatelessWidget {
   const MessageBubble({
@@ -22,10 +24,10 @@ class MessageBubble extends StatelessWidget {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text("Редактировать"),
-        content: TextField(controller: ctrl, maxLines: null),
+        content: TextField(controller: ctrl, maxLines: null, autofocus: true),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: const Text("Отмена")),
-          TextButton(
+          ElevatedButton(
             onPressed: () {
               onEdit(ctrl.text);
               Navigator.pop(context);
@@ -40,107 +42,146 @@ class MessageBubble extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Align(
-      alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
-        constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.8),
-        margin: const EdgeInsets.symmetric(vertical: 4),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        decoration: BoxDecoration(
-          color: isUser ? theme.colorScheme.primary : theme.colorScheme.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(16).copyWith(
-            bottomRight: isUser ? const Radius.circular(2) : null,
-            bottomLeft: !isUser ? const Radius.circular(2) : null,
-          ),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (message.images != null && message.images!.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: message.images!
-                      .map(
-                        (img) => ClipRRect(
-                          borderRadius: BorderRadius.circular(8),
-                          child: Image.memory(
-                            base64Decode(img),
-                            width: 100,
-                            height: 100,
-                            fit: BoxFit.cover,
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Column(
+        crossAxisAlignment: isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+        children: [
+          if (!isUser && message.thinking != null && message.thinking!.isNotEmpty)
+            ThinkingBlock(text: message.thinking!),
+          Row(
+            mainAxisAlignment: isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (!isUser)
+                CircleAvatar(
+                  radius: 16,
+                  backgroundColor: theme.colorScheme.primaryContainer,
+                  child: Icon(Icons.auto_awesome, size: 16, color: theme.colorScheme.primary),
+                ),
+              if (!isUser) const SizedBox(width: 12),
+              Flexible(
+                child: Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: isUser
+                        ? theme.colorScheme.primary
+                        : theme.colorScheme.surfaceContainerLow,
+                    borderRadius: BorderRadius.only(
+                      topLeft: const Radius.circular(16),
+                      topRight: const Radius.circular(16),
+                      bottomLeft: Radius.circular(isUser ? 16 : 4),
+                      bottomRight: Radius.circular(isUser ? 4 : 16),
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.05),
+                        blurRadius: 10,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (message.images != null && message.images!.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: message.images!.map((img) {
+                              return ClipRRect(
+                                borderRadius: BorderRadius.circular(8),
+                                child: Image.memory(
+                                  base64Decode(img),
+                                  width: 160,
+                                  fit: BoxFit.cover,
+                                ),
+                              );
+                            }).toList(),
                           ),
                         ),
-                      )
-                      .toList(),
-                ),
-              ),
-            if (!isUser && message.thinking != null && message.thinking!.isNotEmpty)
-              Container(
-                margin: const EdgeInsets.only(bottom: 8),
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.surfaceContainer,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: theme.dividerColor.withValues(alpha: 0.1)),
-                ),
-                child: Text(
-                  message.thinking!,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                    fontStyle: FontStyle.italic,
+                      MarkdownBody(
+                        data: message.content.isEmpty ? "..." : message.content,
+                        selectable: true,
+                        styleSheet: MarkdownStyleSheet.fromTheme(theme).copyWith(
+                          p: theme.textTheme.bodyLarge?.copyWith(
+                            color: isUser
+                                ? theme.colorScheme.onPrimary
+                                : theme.colorScheme.onSurface,
+                            fontSize: 15,
+                            height: 1.5,
+                          ),
+                          code: TextStyle(
+                            backgroundColor: isUser
+                                ? Colors.black.withValues(alpha: 0.2)
+                                : theme.colorScheme.surfaceContainerHighest,
+                            color: isUser ? Colors.white : theme.colorScheme.primary,
+                            fontSize: 14,
+                            fontFamily: "monospace",
+                          ),
+                          codeblockDecoration: BoxDecoration(
+                            color: isUser
+                                ? Colors.black.withValues(alpha: 0.3)
+                                : theme.colorScheme.surfaceContainerHighest,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
-            SelectionArea(
-              child: Text(
-                message.content.isEmpty ? "..." : message.content,
-                style: TextStyle(
-                  color: isUser ? theme.colorScheme.onPrimary : theme.colorScheme.onSurface,
-                  fontSize: 15,
+              if (isUser) const SizedBox(width: 12),
+              if (isUser)
+                CircleAvatar(
+                  radius: 16,
+                  backgroundColor: theme.colorScheme.secondaryContainer,
+                  child: Icon(Icons.person, size: 16, color: theme.colorScheme.secondary),
                 ),
-              ),
-            ),
-            const SizedBox(height: 4),
-            Row(
+            ],
+          ),
+          Padding(
+            padding: EdgeInsets.only(left: isUser ? 0 : 44, right: isUser ? 44 : 0, top: 4),
+            child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                _ActionButton(
-                  icon: Icons.copy,
+                _BubbleAction(
+                  icon: Icons.copy_rounded,
                   onTap: () => Clipboard.setData(ClipboardData(text: message.content)),
                 ),
                 if (isUser) ...[
                   const SizedBox(width: 8),
-                  _ActionButton(icon: Icons.edit, onTap: () => _showEditDialog(context)),
+                  _BubbleAction(icon: Icons.edit_rounded, onTap: () => _showEditDialog(context)),
                 ],
                 const SizedBox(width: 8),
-                _ActionButton(icon: Icons.delete, onTap: onDelete),
+                _BubbleAction(icon: Icons.delete_outline_rounded, onTap: onDelete),
               ],
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 }
 
-class _ActionButton extends StatelessWidget {
-  const _ActionButton({required this.icon, required this.onTap});
+class _BubbleAction extends StatelessWidget {
+  const _BubbleAction({required this.icon, required this.onTap});
   final IconData icon;
   final VoidCallback onTap;
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(4),
+      borderRadius: BorderRadius.circular(6),
       child: Padding(
-        padding: const EdgeInsets.all(2),
+        padding: const EdgeInsets.all(4),
         child: Icon(
           icon,
-          size: 14,
-          color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.6),
+          size: 16,
+          color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.5),
         ),
       ),
     );

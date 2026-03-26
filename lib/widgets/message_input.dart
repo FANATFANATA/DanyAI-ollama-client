@@ -6,46 +6,89 @@ class MessageInput extends StatelessWidget {
     required this.isLoading,
     required this.hintText,
     required this.onSend,
+    required this.onStop,
     super.key,
   });
   final TextEditingController controller;
   final bool isLoading;
   final String hintText;
   final VoidCallback onSend;
+  final VoidCallback onStop;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        border: Border(top: BorderSide(color: theme.dividerColor, width: 0.5)),
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [theme.colorScheme.surface.withValues(alpha: 0), theme.colorScheme.surface],
+        ),
       ),
-      child: Row(
-        children: [
-          Expanded(
-            child: TextField(
-              controller: controller,
-              maxLines: null,
-              decoration: InputDecoration(
-                hintText: hintText,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(24),
-                  borderSide: BorderSide.none,
-                ),
-                filled: true,
-                contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-              ),
-              onSubmitted: (_) => onSend(),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surfaceContainerHigh,
+          borderRadius: BorderRadius.circular(28),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.1),
+              blurRadius: 20,
+              offset: const Offset(0, 4),
             ),
-          ),
-          const SizedBox(width: 8),
-          IconButton.filled(
-            onPressed: isLoading ? null : onSend,
-            icon: Icon(isLoading ? Icons.hourglass_empty : Icons.send),
-          ),
-        ],
+          ],
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            const SizedBox(width: 8),
+            Expanded(
+              child: TextField(
+                controller: controller,
+                maxLines: 10,
+                minLines: 1,
+                style: const TextStyle(fontSize: 15),
+                decoration: InputDecoration(
+                  hintText: hintText,
+                  hintStyle: TextStyle(
+                    color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.6),
+                  ),
+                  border: InputBorder.none,
+                  contentPadding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.only(bottom: 4, right: 4),
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 200),
+                child: isLoading
+                    ? IconButton.filled(
+                        key: const ValueKey("stop"),
+                        onPressed: onStop,
+                        icon: const Icon(Icons.stop_rounded),
+                        style: IconButton.styleFrom(
+                          backgroundColor: Colors.redAccent,
+                          foregroundColor: Colors.white,
+                          minimumSize: const Size(44, 44),
+                        ),
+                      )
+                    : IconButton.filled(
+                        key: const ValueKey("send"),
+                        onPressed: onSend,
+                        icon: const Icon(Icons.arrow_upward_rounded),
+                        style: IconButton.styleFrom(
+                          backgroundColor: theme.colorScheme.primary,
+                          foregroundColor: theme.colorScheme.onPrimary,
+                          minimumSize: const Size(44, 44),
+                        ),
+                      ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

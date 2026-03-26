@@ -11,7 +11,9 @@ class OllamaService {
 
   Future<List<Map<String, dynamic>>> getLocalModels() async {
     try {
-      final r = await _client.get(Uri.parse("${s.baseUrl}/api/tags"));
+      final r = await _client
+          .get(Uri.parse("${s.baseUrl}/api/tags"))
+          .timeout(const Duration(seconds: 5));
       if (r.statusCode != 200) return [];
       final d = jsonDecode(r.body) as Map<String, dynamic>;
       return (d["models"] as List<dynamic>).cast<Map<String, dynamic>>();
@@ -20,14 +22,15 @@ class OllamaService {
     }
   }
 
-  Future<List<Map<String, dynamic>>> getRunningModels() async {
+  Future<bool> deleteModel(String name) async {
     try {
-      final r = await _client.get(Uri.parse("${s.baseUrl}/api/ps"));
-      if (r.statusCode != 200) return [];
-      final d = jsonDecode(r.body) as Map<String, dynamic>;
-      return (d["models"] as List<dynamic>).cast<Map<String, dynamic>>();
+      final r = await _client.delete(
+        Uri.parse("${s.baseUrl}/api/delete"),
+        body: jsonEncode({"model": name}),
+      );
+      return r.statusCode == 200;
     } catch (_) {
-      return [];
+      return false;
     }
   }
 
@@ -42,18 +45,6 @@ class OllamaService {
       }
     } catch (e) {
       yield {"error": e.toString()};
-    }
-  }
-
-  Future<bool> deleteModel(String name) async {
-    try {
-      final r = await _client.delete(
-        Uri.parse("${s.baseUrl}/api/delete"),
-        body: jsonEncode({"model": name}),
-      );
-      return r.statusCode == 200;
-    } catch (_) {
-      return false;
     }
   }
 
@@ -72,19 +63,14 @@ class OllamaService {
           "repeat_penalty": s.repeatPenalty,
         },
       });
-
     try {
       final res = await _client.send(req);
       String fullContent = "";
       String fullThinking = "";
-
       await for (final line in res.stream.transform(utf8.decoder).transform(const LineSplitter())) {
         if (line.trim().isEmpty) continue;
         final d = jsonDecode(line) as Map<String, dynamic>;
-        if (d.containsKey("error")) {
-          throw Exception(d["error"].toString());
-        }
-
+        if (d.containsKey("error")) throw Exception(d["error"]);
         final msg = d["message"] as Map<String, dynamic>?;
         if (msg != null) {
           final content = msg["content"] as String?;
