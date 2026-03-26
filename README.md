@@ -1,31 +1,8 @@
-# DanyAI Ollama Client
+# DanyAI
 
-Flutter клиент для Ollama.
+Flutter клиент для Ollama / Flutter client for ollama
 
----
+## Язык / Language
 
-## 🌐 Язык / Language
-
-- [🇷🇺 Русский](README_RU.md)
-- [🇬🇧 English](README_EN.md)
-
----
-
-## 🚀 Быстрый старт
-
-```bash
-flutter pub get
-flutter run
-```
-
-## 📦 Сборка
-
-```bash
-# APK
-flutter build apk --release
-
-# Windows
-flutter build windows --release
-```
-
-Или используй `menu.py` для удобного управления.
+- [Русский](README_RU.md)
+- [English](README_EN.md)
