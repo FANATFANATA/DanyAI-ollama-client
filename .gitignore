@@ -26,6 +26,18 @@ build/
 *.lock
 *.iml
 
+# Flutter analyze
+*.orig
+*.rej
+
+# Flutter/Dart
+**/ios/Flutter/Flutter.framework
+**/ios/Flutter/Flutter.podspec
+**/ios/Pods/
+**/ios/.symlinks/
+**/macos/Pods/
+**/macos/Flutter/GeneratedPluginRegistrant.swift
+
 # Android
 android/.gradle/
 android/captures/
@@ -33,34 +45,42 @@ android/gradlew
 android/gradlew.bat
 android/local.properties
 android/**/GeneratedPluginRegistrant.java
+android/**/*.iml
+android/.idea/
+**/android/**/build/
 
 # iOS
-ios/Pods/
-ios/.symlinks/
-ios/Flutter/Flutter.framework
-ios/Flutter/Flutter.podspec
-ios/Flutter/Generated.xcconfig
+ios/Runner.xcworkspace/xcshareddata/
+ios/Flutter/AppFrameworkInfo.plist
+!**/ios/Podfile
+!**/ios/Podfile.lock
 
 # macOS
-macos/Pods/
-macos/Flutter/GeneratedPluginRegistrant.swift
+macos/Runner.xcworkspace/xcshareddata/
+!**/macos/Podfile
+!**/macos/Podfile.lock
 
 # Linux
-linux/flutter/generated_plugin_registrant.cc
-linux/flutter/generated_plugin_registrant.h
-linux/flutter/generated_plugins.cmake
+linux/flutter/ephemeral/
+linux/**/ephemeral/
 
 # Windows
-windows/flutter/generated_plugin_registrant.cc
-windows/flutter/generated_plugin_registrant.h
-windows/flutter/generated_plugins.cmake
+windows/flutter/ephemeral/
+windows/**/ephemeral/
+windows/**/x64/
+windows/**/ARM64/
+
+# Web
+web/build/
 
 # IDE
 .idea/
 .vscode/
-
-# Misc
 *.swp
 *.swo
 *~
 .DS_Store
+
+# Environment
+.env
+.env.*
